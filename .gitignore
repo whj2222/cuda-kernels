@@ -1,0 +1,12 @@
+# 编译产物
+*.exe
+*.obj
+*.o
+*.lib
+*.pdb
+x64/
+Debug/
+Release/
+# Visual Studio 缓存
+.vs/
+*.user
