@@ -11,6 +11,14 @@ do {                                                     \
 	}                                                    \
 	}while(0)
 
+__global__ void copyKernel(const float* in, float* out, int n)
+{
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	if (i < n)
+	{
+		out[i] = in[i];
+	}
+}
 
 int main()
 {
@@ -20,15 +28,27 @@ int main()
 
 	// 理论峰值带宽
 	int memClockKHz = 0;
-	cudaDeviceGetAttribute(&memClockKHz, cudaDevAttrMemoryClockRate, dev);
+	CUDA_CHECK(cudaDeviceGetAttribute(&memClockKHz, cudaDevAttrMemoryClockRate, dev));
 	double theoryBW = 2.0 * memClockKHz * (p.memoryBusWidth / 8) / 1.0e6;
 	printf("Device: %s\n", p.name);
 	printf("Bus width: %d bit, Mem clock: %.0f MHz\n", p.memoryBusWidth, memClockKHz / 1000.0);
 	printf("Theoretical bandwidth: %.1f GB/s\n\n", theoryBW);
+
 	// 数据准备
+	const int N = 1 << 26;
+	const size_t bytes = N * sizeof(float);
 
+	float* d_in, * d_out;
+	CUDA_CHECK(cudaMalloc(&d_in, bytes));
+	CUDA_CHECK(cudaMalloc(&d_out, bytes));
+	CUDA_CHECK(cudaMemset(d_in, 1, bytes));
+
+	dim3 block(256);
+	dim3 grid((N + block.x - 1) / block.x);
+	
 	// warm up
-
+	for (int i = 0;i < 10;i++) copyKernel << <grid, block >> > (d_in, d_out, N);
+	
 	// 计时
 
 	// 实测带宽
