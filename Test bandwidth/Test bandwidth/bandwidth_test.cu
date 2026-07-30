@@ -1,6 +1,14 @@
 #include<cstdio>
 #include<cuda_runtime.h>
 
+//Device: NVIDIA T600 Laptop GPU
+//Bus width : 128 bit, Mem clock : 5001 MHz
+//Theoretical bandwidth : 160.0 GB / s
+//
+//Kernel time(average) : 4.0362 ms
+//Measured bandwidth : 133.0 GB / s
+//Efficiency : 83.1 % of theoretical peak
+
 #define CUDA_CHECK(call)                                 \
 do {                                                     \
 	cudaError_t err = call;                              \
