@@ -48,11 +48,35 @@ int main()
 	
 	// warm up
 	for (int i = 0;i < 10;i++) copyKernel << <grid, block >> > (d_in, d_out, N);
-	
+	CUDA_CHECK(cudaGetLastError());
+	CUDA_CHECK(cudaDeviceSynchronize());
+
 	// 计时
+	cudaEvent_t start, stop;
+	CUDA_CHECK(cudaEventCreate(&start));
+	CUDA_CHECK(cudaEventCreate(&stop));
 
+	int iters = 100;
+	CUDA_CHECK(cudaEventRecord(start));
+	for (int i = 0;i < iters;i++) copyKernel << <grid, block >> > (d_in, d_out, N);
+	CUDA_CHECK(cudaEventRecord(stop));
+	CUDA_CHECK(cudaEventSynchronize(stop));
+
+	float ms = 0.0f;
+	CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
+	
 	// 实测带宽
+	double movedBytes = 2 * bytes;
+	double avgMs = ms / iters;                        
+	double actualBW = movedBytes / ((avgMs / 1000) * 1e9);
 
+	printf("Kernel time (average)   : %.4f ms\n", avgMs);
+	printf("Measured bandwidth      : %.1f GB/s\n", actualBW);
+	printf("Efficiency              : %.1f%% of theoretical peak\n", actualBW / theoryBW * 100);
 	// 清理
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
+	cudaFree(d_in);
+	cudaFree(d_out);
 	return 0;
 }
