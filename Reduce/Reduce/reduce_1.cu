@@ -13,6 +13,25 @@ do {                                                     \
 
 #define BLOCK_SIZE 256
 
+__global__ void reduce0(int* g_idata, int* g_odata, int n)
+{
+	extern __shared__ int sdata[];
+
+	int tid = threadIdx.x;
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	sdata[i] = (i < n) ? g_idata[i] : 0;
+	__syncthreads();
+
+	for (int s = 1;s < blockDim.x;s * 2)
+	{
+		if (tid % (2 * s) == 0)
+		{
+			sdata[tid] += sdata[tid + s];
+		}
+		__syncthreads();
+	}
+	if (tid == 0) g_odata[blockIdx.x] = sdata[0];
+}
 
 int main()
 {
