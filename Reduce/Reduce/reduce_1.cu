@@ -50,6 +50,7 @@ int main()
 	// 启动配置
 	dim3 block(BLOCK_SIZE);
 	dim3 grid((N + block.x - 1) / block.x);
+	size_t smem = BLOCK_SIZE * sizeof(int);
 
 	//设备内存
 	int* d_in, * d_partial;
