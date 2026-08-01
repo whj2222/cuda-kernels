@@ -19,10 +19,10 @@ __global__ void reduce0(int* g_idata, int* g_odata, int n)
 
 	int tid = threadIdx.x;
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
-	sdata[i] = (i < n) ? g_idata[i] : 0;
+	sdata[tid] = (i < n) ? g_idata[i] : 0;
 	__syncthreads();
 
-	for (int s = 1;s < blockDim.x;s * 2)
+	for (int s = 1;s < blockDim.x;s *= 2)
 	{
 		if (tid % (2 * s) == 0)
 		{
@@ -31,6 +31,21 @@ __global__ void reduce0(int* g_idata, int* g_odata, int n)
 		__syncthreads();
 	}
 	if (tid == 0) g_odata[blockIdx.x] = sdata[0];
+}
+
+int* runReduce(int* src, int* dst, int N, size_t smem)
+{
+	int curN = N;
+	while (curN > 1)
+	{
+		int blocks = (curN + BLOCK_SIZE - 1) / BLOCK_SIZE;
+		reduce0 << <blocks, BLOCK_SIZE, smem >> > (src, dst, curN);
+		CUDA_CHECK(cudaGetLastError());
+		curN = blocks;
+
+		int* tmp = src; src = dst; dst = tmp;
+	}
+	return src;
 }
 
 int main()
