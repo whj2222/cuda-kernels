@@ -13,6 +13,10 @@ do {                                                     \
 
 #define BLOCK_SIZE 256
 
+//GPU sum = 16777216, CPU sum = 16777216 -- > PASS
+//Time(avg) : 3.9523 ms
+//Effective BW : 17.0 GB / S
+
 __global__ void reduce0(int* g_idata, int* g_odata, int n)
 {
 	extern __shared__ int sdata[];
