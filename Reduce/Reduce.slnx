@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Reduce/Reduce.vcxproj" />
+  <Project Path="Reduce/Reduce.vcxproj" Id="e9a9c049-278e-498e-9ef5-9adfc1296af2" />
 </Solution>

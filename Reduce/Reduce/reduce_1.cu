@@ -33,9 +33,13 @@ __global__ void reduce0(int* g_idata, int* g_odata, int n)
 	if (tid == 0) g_odata[blockIdx.x] = sdata[0];
 }
 
-int* runReduce(int* src, int* dst, int N, size_t smem)
+int* runReduce(int* d_in, int* d_buf1, int* d_buf2, int N, size_t smem)
 {
 	int curN = N;
+	int* src = d_in;
+	int* dst = d_buf1;
+	int* spare = d_buf2;
+	bool first = true;
 	while (curN > 1)
 	{
 		int blocks = (curN + BLOCK_SIZE - 1) / BLOCK_SIZE;
@@ -43,7 +47,14 @@ int* runReduce(int* src, int* dst, int N, size_t smem)
 		CUDA_CHECK(cudaGetLastError());
 		curN = blocks;
 
-		int* tmp = src; src = dst; dst = tmp;
+		if (first)
+		{
+			src = dst; dst = spare; first = false;
+		}
+		else
+		{
+			int* tmp = src; src = dst; dst = tmp;
+		}
 	}
 	return src;
 }
@@ -68,15 +79,16 @@ int main()
 	size_t smem = BLOCK_SIZE * sizeof(int);
 
 	//设备内存
-	int* d_in, * d_partial;
+	int* d_in, * d_buf1, * d_buf2;
 	CUDA_CHECK(cudaMalloc(&d_in, bytes));
-	CUDA_CHECK(cudaMalloc(&d_partial, grid.x * sizeof(int)));
+	CUDA_CHECK(cudaMalloc(&d_buf1, grid.x * sizeof(int)));
+	CUDA_CHECK(cudaMalloc(&d_buf2, grid.x * sizeof(int)));
 	CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
 
 	// warm up
 	for (int t = 0;t < 10;t++)
 	{
-		runReduce(d_in, d_partial, N, smem);
+		runReduce(d_in, d_buf1, d_buf2, N, smem);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -90,18 +102,29 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < iter;i++)
 	{
-		d_result = runReduce(d_in, d_partial, N, smem);
+		d_result = runReduce(d_in, d_buf1, d_buf2, N, smem);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaEventSynchronize(stop));
 	
 	float ms = 0.0f;
 	CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
+	ms /= iter;
 	// 结果
+	int gpuSum = 0;
+	CUDA_CHECK(cudaMemcpy(&gpuSum, d_result, sizeof(int), cudaMemcpyDeviceToHost));
+	double actualBW = (double)bytes / (ms / 1e3) / 1e9;
 
+	printf("GPU sum = %d, CPU sum = %d --> %s\n", gpuSum, cpuSum, (gpuSum == cpuSum) ? "PASS" : "FAIL");
+	printf("Time (avg)     : %.4f ms\n", ms);
+	printf("Effective BW   : %.1f GB/S\n", actualBW);
+	
 	// 清理
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
 	cudaFree(d_in);
-	cudaFree(d_partial);
+	cudaFree(d_buf1);
+	cudaFree(d_buf2);
 	free(h_in);
 	return 0;
 }
