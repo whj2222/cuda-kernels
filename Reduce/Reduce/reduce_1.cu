@@ -73,12 +73,30 @@ int main()
 	CUDA_CHECK(cudaMalloc(&d_partial, grid.x * sizeof(int)));
 	CUDA_CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));
 
-	// 多趟归约
-
 	// warm up
+	for (int t = 0;t < 10;t++)
+	{
+		runReduce(d_in, d_partial, N, smem);
+	}
+	CUDA_CHECK(cudaDeviceSynchronize());
 
 	// 计时
+	cudaEvent_t start, stop;
+	CUDA_CHECK(cudaEventCreate(&start));
+	CUDA_CHECK(cudaEventCreate(&stop));
 
+	const int iter = 100;
+	int* d_result = nullptr;
+	CUDA_CHECK(cudaEventRecord(start));
+	for (int i = 0;i < iter;i++)
+	{
+		d_result = runReduce(d_in, d_partial, N, smem);
+	}
+	CUDA_CHECK(cudaEventRecord(stop));
+	CUDA_CHECK(cudaEventSynchronize(stop));
+	
+	float ms = 0.0f;
+	CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
 	// 结果
 
 	// 清理
