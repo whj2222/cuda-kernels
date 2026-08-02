@@ -18,5 +18,8 @@
     <CudaCompile Include="reduce_1.cu">
       <Filter>源文件</Filter>
     </CudaCompile>
+    <CudaCompile Include="reduce_2.cu">
+      <Filter>源文件</Filter>
+    </CudaCompile>
   </ItemGroup>
 </Project>
