@@ -14,24 +14,23 @@ do {                                                     \
 #define BLOCK_SIZE 256
 
 //GPU sum = 16777216, CPU sum = 16777216 -- > PASS
-//Time(avg) : 2.9000 ms
-//Effective BW : 23.1 GB / S
+//Time(avg) : 2.1614 ms
+//Effective BW : 31.0 GB / S
 
-__global__ void reduce2(int* g_idata, int* g_odata, int n)
+__global__ void reduce4(int* g_idata, int* g_odata, int n)
 {
 	extern __shared__ int sdata[];
 
 	int tid = threadIdx.x;
-	int i = blockDim.x * blockIdx.x + threadIdx.x;
-	sdata[tid] = (i < n) ? g_idata[i] : 0;
+	int i = (blockDim.x * 2) * blockIdx.x + threadIdx.x;
+	sdata[tid] = (i < n) ? g_idata[i] + g_idata[i + blockDim.x] : 0;
 	__syncthreads();
 
-	for (int s = 1;s < blockDim.x;s *= 2)
+	for (int s = blockDim.x / 2;s > 0;s /= 2)
 	{
-		int index = s * 2 * tid;
-		if (index < blockDim.x)
+		if (tid < s)
 		{
-			sdata[index] += sdata[index + s];
+			sdata[tid] += sdata[tid + s];
 		}
 		__syncthreads();
 	}
@@ -48,7 +47,7 @@ int* runReduce(int* d_in, int* d_buf1, int* d_buf2, int N, size_t smem)
 	while (curN > 1)
 	{
 		int blocks = (curN + BLOCK_SIZE - 1) / BLOCK_SIZE;
-		reduce2 << <blocks, BLOCK_SIZE, smem >> > (src, dst, curN);
+		reduce4 << <blocks, BLOCK_SIZE, smem >> > (src, dst, curN);
 		CUDA_CHECK(cudaGetLastError());
 		curN = blocks;
 

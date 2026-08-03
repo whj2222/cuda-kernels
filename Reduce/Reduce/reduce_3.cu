@@ -17,7 +17,7 @@ do {                                                     \
 //Time(avg) : 2.4913 ms
 //Effective BW : 26.9 GB / S
 
-__global__ void reduce1(int* g_idata, int* g_odata, int n)
+__global__ void reduce3(int* g_idata, int* g_odata, int n)
 {
 	extern __shared__ int sdata[];
 
@@ -47,7 +47,7 @@ int* runReduce(int* d_in, int* d_buf1, int* d_buf2, int N, size_t smem)
 	while (curN > 1)
 	{
 		int blocks = (curN + BLOCK_SIZE - 1) / BLOCK_SIZE;
-		reduce1 << <blocks, BLOCK_SIZE, smem >> > (src, dst, curN);
+		reduce3 << <blocks, BLOCK_SIZE, smem >> > (src, dst, curN);
 		CUDA_CHECK(cudaGetLastError());
 		curN = blocks;
 
