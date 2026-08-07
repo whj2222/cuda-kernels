@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="Softmax/Softmax.vcxproj" />
+  <Project Path="Softmax/Softmax.vcxproj" Id="e3939df1-c150-4745-9b45-c61ac485764f" />
 </Solution>
