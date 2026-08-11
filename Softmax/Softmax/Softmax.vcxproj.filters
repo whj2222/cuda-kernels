@@ -15,7 +15,10 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="softmax_1.cu">
+    <CudaCompile Include="softmax_0.cu">
+      <Filter>源文件</Filter>
+    </CudaCompile>
+    <CudaCompile Include="softmax_v1.cu">
       <Filter>源文件</Filter>
     </CudaCompile>
   </ItemGroup>
