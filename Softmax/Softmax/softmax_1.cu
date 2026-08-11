@@ -11,6 +11,18 @@ do {\
 	}\
 } while (0)
 
+//========== Softmax Performance ==========
+//Matrix size : 1024 x 1024
+//Memory size : 4.00 MB
+//======================================== =
+//PASS : Result match!
+//Performance States :
+//Matrix Size : 1024 x 1024
+//Avg Time per run : 3.11 ms
+//Effective Bandwidth : 2.70 GB / s
+//Throughput(approx) : 0.34 GFLOPS(based on element count)
+
+
 __global__ void softmax_v0(float* input, float* output, int M, int N)
 {
 	int row = blockIdx.x * blockDim.x + threadIdx.x;
@@ -150,7 +162,7 @@ int main()
 
 	printf("Performance States:\n");
 	printf("  Matrix Size: %d x %d\n", M, N);
-	printf("  Avg Time per run: %d ms\n", avg_time_ms);
+	printf("  Avg Time per run: %.2f ms\n", avg_time_ms);
 	printf("  Effective Bandwidth: %.2f GB/s\n", effective_bandwidth);
 	printf("  Throughput (approx): %.2f GFLOPS (based on element count)\n", gflops);
 
