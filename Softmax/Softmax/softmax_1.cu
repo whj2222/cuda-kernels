@@ -79,6 +79,12 @@ int main()
 	int M = 1024;
 	int N = 1024;
 	size_t byte = M * N * sizeof(float);
+	int num_elements = M * N;
+
+	printf("========== Softmax Performance ==========\n");
+	printf("Matrix size: %d x %d\n", M, N);
+	printf("Memory size: %.2f MB\n", byte / (1024.0 * 1024.0));
+	printf("=========================================\n");
 
 	float* h_input = (float*)malloc(byte);
 	float* h_output_gpu = (float*)malloc(byte);
@@ -96,13 +102,38 @@ int main()
 	CUDA_CHECK(cudaMalloc(&d_output, byte));
 	CUDA_CHECK(cudaMemcpy(d_input, h_input, byte, cudaMemcpyHostToDevice));
 
+
+	cudaEvent_t start, stop;
+	CUDA_CHECK(cudaEventCreate(&start));
+	CUDA_CHECK(cudaEventCreate(&stop));
+
 	dim3 threadPerBlock(256);
 	dim3 blockPerGrid((M * N + threadPerBlock.x - 1) / threadPerBlock.x);
 
-	softmax_v0 << <blockPerGrid, threadPerBlock >> > (d_input, d_output, M, N);
+	// warm up
+	for (int i = 0;i < 20;i++)
+	{
+		softmax_v0 << <blockPerGrid, threadPerBlock >> > (d_input, d_output, M, N);
+	}
+	CUDA_CHECK(cudaDeviceSynchronize());
+	CUDA_CHECK(cudaEventRecord(start));
+
+	int repeat = 20;
+
+	CUDA_CHECK(cudaEventRecord(start));
+	for (int i = 0;i < repeat;i++)
+	{
+		softmax_v0 << <blockPerGrid, threadPerBlock >> > (d_input, d_output, M, N);
+	}
+	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
 	CUDA_CHECK(cudaDeviceSynchronize());
 	CUDA_CHECK(cudaMemcpy(h_output_gpu, d_output, byte, cudaMemcpyDeviceToHost));
+
+	float milliseconds = 0;
+	CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+
+	float avg_time_ms = milliseconds / repeat;
 
 	softmax_cpu(h_input, h_output_cpu, M, N);
 	if (check_result(h_output_gpu, h_output_cpu, M, N))
@@ -112,6 +143,19 @@ int main()
 		printf("FAIL: Result mismatch.\n");
 	}
 
+	double total_ops = (double)M * (double)N;
+	double time_sec = avg_time_ms / 1000.0;
+	double effective_bandwidth = (2 * M * N * sizeof(float)) / (time_sec * 1e9);
+	double gflops = total_ops / time_sec * 1e-9;
+
+	printf("Performance States:\n");
+	printf("  Matrix Size: %d x %d\n", M, N);
+	printf("  Avg Time per run: %d ms\n", avg_time_ms);
+	printf("  Effective Bandwidth: %.2f GB/s\n", effective_bandwidth);
+	printf("  Throughput (approx): %.2f GFLOPS (based on element count)\n", gflops);
+
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
 	free(h_input);
 	free(h_output_gpu);
 	free(h_output_cpu);
