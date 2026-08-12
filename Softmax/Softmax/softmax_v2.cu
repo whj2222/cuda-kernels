@@ -12,20 +12,61 @@ do {\
 	}\
 } while (0)
 
-//========== Softmax Performance ==========
-//Matrix size : 1024 x 1024
-//Memory size : 4.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 1024 x 1024
-//Avg Time per run : 0.88 ms
-//Effective Bandwidth : 9.54 GB / s
-//Throughput(approx) : 1.19 GFLOPS(based on element count)
+
 
 // 一个block处理一行
-__global__ void softmax_v1(float* input, float* output, int M, int N)
+__global__ void softmax_v2(float* input, float* output, int M, int N)
 {
+	extern __shared__ float smem[];
+
+	int row = blockIdx.x;
+	int tid = threadIdx.x;
+
+	float* x = input + row * N;
+	float* y = output + row * N;
+
+	// 并行计算max
+	float max_val = -INFINITY;
+	for (int i = tid; i < N;i += blockDim.x)
+	{
+		max_val = fmaxf(max_val, x[i]);
+	}
+	__syncthreads();
+	smem[tid] = max_val;
+
+	// 归约计算全局最大值
+	for (int i = blockDim.x / 2; i > 0;i >>= 1)
+	{
+		if (tid < i) smem[tid] = fmaxf(smem[tid], smem[tid + i]);
+		__syncthreads();
+	}
+	max_val = smem[0];
+	__syncthreads();
+
+	// 并行计算指数和
+	float sum = 0.0f;
+	for (int i = tid;i < N;i += blockDim.x)
+	{
+		sum += expf(x[i] - max_val);
+	}
+	smem[tid] = sum;
+	__syncthreads();
+
+	// 归约计算总指数和
+	for (int i = blockDim.x / 2;i > 0;i >>= 1)
+	{
+		if (tid < i) smem[tid] += smem[tid + i];
+		__syncthreads();
+	}
+
+	sum = smem[0];
+	__syncthreads();
+
+	// 计算softmax
+	for (int i = tid; i < N;i += blockDim.x)
+	{
+		y[i] = expf(x[i] - max_val) / sum;
+	}
 
 }
 
@@ -103,7 +144,7 @@ int main()
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		softmax_v1 << <M, threadPerBlock, smem_size>> > (d_input, d_output, M, N);
+		softmax_v2 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 	CUDA_CHECK(cudaEventRecord(start));
@@ -113,7 +154,7 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		softmax_v1 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
+		softmax_v2 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
