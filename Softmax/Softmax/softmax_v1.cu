@@ -12,16 +12,49 @@ do {\
 	}\
 } while (0)
 
-//========== Softmax Performance ==========
-//Matrix size : 1024 x 1024
-//Memory size : 4.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 1024 x 1024
-//Avg Time per run : 0.88 ms
-//Effective Bandwidth : 9.54 GB / s
-//Throughput(approx) : 1.19 GFLOPS(based on element count)
+// Warp内归约: max
+__device__ float warpReduceMax(float val)
+{
+	for (int offset = 16; offset > 0;offset >>= 1)
+	{
+		val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
+	}
+	return val;
+}
+
+// Warp内归约: sum
+__device__ float warpReduceSum(float val)
+{
+	for (int offset = 16;offset > 0;offset >>= 1)
+	{
+		val += __shfl_down_sync(0xffffffff, val, offset);
+	}
+	return val;
+}
+
+// block内归约: max
+__device__ float blockReduceMaxSuffle(float val)
+{
+	__shared__ float  warp_max[32];
+	
+	int lane = threadIdx.x % 32;
+	int wid = threadIdx.x / 32;
+
+	val = warpReduceMax(val);
+	
+	if (lane == 0) warp_max[wid] = val;
+	__syncthreads();
+
+	int num_warps = blockDim.x / 32;
+	val = (lane < num_warps) ? warp_max[wid] : -INFINITY;
+	if (wid == 0) warpReduceMax(val);
+	
+	
+	
+}
+
+// block内归约: sum
+
 
 // 一个block处理一行
 __global__ void softmax_v1(float* input, float* output, int M, int N)
