@@ -12,62 +12,113 @@ do {\
 	}\
 } while (0)
 
+//========== Softmax Performance ==========
+//Matrix size : 1024 x 1024
+//Memory size : 4.00 MB
+//======================================== =
+//PASS : Result match!
+//Performance States :
+//Matrix Size : 1024 x 1024
+//Avg Time per run : 1.83 ms
+//Effective Bandwidth : 4.57 GB / s
+//Throughput(approx) : 0.57 GFLOPS(based on element count)
+
+// Warp内归约: max
+__device__ float warpReduceMax(float val)
+{
+	for (int offset = 16; offset > 0;offset >>= 1)
+	{
+		val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
+	}
+	return val;
+}
+
+// Warp内归约: sum
+__device__ float warpReduceSum(float val)
+{
+	for (int offset = 16;offset > 0;offset >>= 1)
+	{
+		val += __shfl_down_sync(0xffffffff, val, offset);
+	}
+	return val;
+}
+
+// block内归约: max
+__device__ float blockReduceMaxShuffle(float val)
+{
+	__shared__ float  warp_max[32];
+
+	int lane = threadIdx.x % 32;
+	int wid = threadIdx.x / 32;
+
+	val = warpReduceMax(val);
+
+	if (lane == 0) warp_max[wid] = val;
+	__syncthreads();
+
+	int num_warps = blockDim.x / 32;
+	val = (lane < num_warps) ? warp_max[lane] : -INFINITY;
+	if (wid == 0) val = warpReduceMax(val);
+
+	__shared__ float block_result;
+	if (threadIdx.x == 0) block_result = val;
+	__syncthreads();
+	return block_result;
+}
+
+// block内归约: sum
+__device__ float blockReduceSumShuffle(float val)
+{
+	__shared__ float warp_sum[32];
+
+	int lane = threadIdx.x % 32;
+	int wid = threadIdx.x / 32;
+
+	val = warpReduceSum(val);
+
+	if (lane == 0) warp_sum[wid] = val;
+	__syncthreads();
+
+	int num_warps = blockDim.x / 32;
+	val = (lane < num_warps) ? warp_sum[lane] : 0.0f;
+	if (wid == 0) val = warpReduceSum(val);
+
+	__shared__ float block_result;
+	if (threadIdx.x == 0) block_result = val;
+	__syncthreads();
+	return block_result;
+}
 
 
-// 一个block处理一行
 __global__ void softmax_v2(float* input, float* output, int M, int N)
 {
-	extern __shared__ float smem[];
-
 	int row = blockIdx.x;
 	int tid = threadIdx.x;
 
 	float* x = input + row * N;
 	float* y = output + row * N;
-
-	// 并行计算max
-	float max_val = -INFINITY;
-	for (int i = tid; i < N;i += blockDim.x)
-	{
-		max_val = fmaxf(max_val, x[i]);
-	}
-	__syncthreads();
-	smem[tid] = max_val;
-
-	// 归约计算全局最大值
-	for (int i = blockDim.x / 2; i > 0;i >>= 1)
-	{
-		if (tid < i) smem[tid] = fmaxf(smem[tid], smem[tid + i]);
-		__syncthreads();
-	}
-	max_val = smem[0];
-	__syncthreads();
-
-	// 并行计算指数和
-	float sum = 0.0f;
+	
+	// 求最大值
+	float local_max = -INFINITY;
 	for (int i = tid;i < N;i += blockDim.x)
 	{
-		sum += expf(x[i] - max_val);
+		local_max = fmaxf(local_max, x[i]);
 	}
-	smem[tid] = sum;
-	__syncthreads();
+	float max_val = blockReduceMaxShuffle(local_max);
 
-	// 归约计算总指数和
-	for (int i = blockDim.x / 2;i > 0;i >>= 1)
+	// 求指数和
+	float local_sum = 0.0f;
+	for (int i = tid;i < N;i += blockDim.x)
 	{
-		if (tid < i) smem[tid] += smem[tid + i];
-		__syncthreads();
+		local_sum += expf(x[i] - max_val);
 	}
+	float sum_val = blockReduceSumShuffle(local_sum);
 
-	sum = smem[0];
-	__syncthreads();
-
-	// 计算softmax
-	for (int i = tid; i < N;i += blockDim.x)
+	// 归一化
+	for (int i = tid;i < N;i += blockDim.x)
 	{
-		y[i] = expf(x[i] - max_val) / sum;
+		y[i] = expf(x[i] - max_val) / sum_val;
 	}
-
 }
 
 // CPU 端的 Softmax 实现，用于结果验证
@@ -99,6 +150,7 @@ bool check_result(float* gpu_res, float* cpu_res, int M, int N)
 	{
 		if (fabs(gpu_res[i] - cpu_res[i]) > eps)
 		{
+			printf("i = %d, GPU result: %f, CPU result: %f\n", i, gpu_res[i], cpu_res[i]);
 			return false;
 		}
 	}
@@ -140,29 +192,29 @@ int main()
 
 	dim3 threadPerBlock(256);
 	int smem_size = threadPerBlock.x * sizeof(float);
+	float milliseconds = 0;
 
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		softmax_v2 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
+		softmax_v2 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
-	CUDA_CHECK(cudaEventRecord(start));
 
 	int repeat = 20;
 
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		softmax_v2 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
+		softmax_v2 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
-	CUDA_CHECK(cudaDeviceSynchronize());
+	CUDA_CHECK(cudaEventSynchronize(stop));
+	CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
 	CUDA_CHECK(cudaMemcpy(h_output_gpu, d_output, byte, cudaMemcpyDeviceToHost));
 
-	float milliseconds = 0;
-	CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+
 
 	float avg_time_ms = milliseconds / repeat;
 

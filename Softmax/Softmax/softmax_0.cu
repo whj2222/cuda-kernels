@@ -18,9 +18,9 @@ do {\
 //PASS : Result match!
 //Performance States :
 //Matrix Size : 1024 x 1024
-//Avg Time per run : 3.11 ms
-//Effective Bandwidth : 2.70 GB / s
-//Throughput(approx) : 0.34 GFLOPS(based on element count)
+//Avg Time per run : 3.58 ms
+//Effective Bandwidth : 2.34 GB / s
+//Throughput(approx) : 0.29 GFLOPS(based on element count)
 
 
 __global__ void softmax_v0(float* input, float* output, int M, int N)
@@ -121,6 +121,7 @@ int main()
 
 	dim3 threadPerBlock(256);
 	dim3 blockPerGrid((M * N + threadPerBlock.x - 1) / threadPerBlock.x);
+	float milliseconds = 0;
 
 	// warm up
 	for (int i = 0;i < 20;i++)
@@ -128,7 +129,6 @@ int main()
 		softmax_v0 << <blockPerGrid, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
-	CUDA_CHECK(cudaEventRecord(start));
 
 	int repeat = 20;
 
@@ -139,11 +139,11 @@ int main()
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
-	CUDA_CHECK(cudaDeviceSynchronize());
+	CUDA_CHECK(cudaEventSynchronize(stop));
+	CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
 	CUDA_CHECK(cudaMemcpy(h_output_gpu, d_output, byte, cudaMemcpyDeviceToHost));
 
-	float milliseconds = 0;
-	CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+
 
 	float avg_time_ms = milliseconds / repeat;
 
@@ -151,7 +151,8 @@ int main()
 	if (check_result(h_output_gpu, h_output_cpu, M, N))
 	{
 		printf("PASS: Result match!\n");
-	}else{
+	}
+	else {
 		printf("FAIL: Result mismatch.\n");
 	}
 
@@ -174,5 +175,6 @@ int main()
 	cudaFree(d_input);
 	cudaFree(d_output);
 
+	system("pause");
 	return 0;
 }
