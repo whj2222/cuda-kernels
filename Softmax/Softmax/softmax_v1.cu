@@ -49,8 +49,10 @@ __device__ float blockReduceMaxSuffle(float val)
 	val = (lane < num_warps) ? warp_max[wid] : -INFINITY;
 	if (wid == 0) warpReduceMax(val);
 	
-	
-	
+	__shared__ float block_result;
+	if (threadIdx.x == 0) block_result = val;
+	__syncthreads();
+	return block_result;
 }
 
 // block内归约: sum
