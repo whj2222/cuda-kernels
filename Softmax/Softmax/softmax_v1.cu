@@ -12,27 +12,6 @@ do {\
 	}\
 } while (0)
 
-//========== Softmax Performance ==========
-//Matrix size : 4096 x 4096
-//Memory size : 64.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 4096 x 4096
-//Avg Time per run : 6.46 ms
-//Effective Bandwidth : 20.77 GB / s
-//Throughput(approx) : 2.60 GFLOPS(based on element count)
-
-//========== Softmax Performance ==========
-//Matrix size : 5120 x 5120
-//Memory size : 100.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 5120 x 5120
-//Avg Time per run : 8.30 ms
-//Effective Bandwidth : 25.28 GB / s
-//Throughput(approx) : 3.16 GFLOPS(based on element count)
 
 // 一个block处理一行
 __global__ void softmax_v1(float* input, float* output, int M, int N)
@@ -127,8 +106,8 @@ bool check_result(float* gpu_res, float* cpu_res, int M, int N)
 
 int main()
 {
-	int M = 6144;
-	int N = 6144;
+	int M = 1024;
+	int N = 1024;
 	size_t byte = M * N * sizeof(float);
 	int num_elements = M * N;
 

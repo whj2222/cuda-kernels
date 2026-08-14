@@ -12,38 +12,6 @@ do {\
 	}\
 } while (0)
 
-//========== Softmax Performance ==========
-//Matrix size : 4096 x 4096
-//Memory size : 64.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 4096 x 4096
-//Avg Time per run : 7.53 ms
-//Effective Bandwidth : 17.81 GB / s
-//Throughput(approx) : 2.23 GFLOPS(based on element count)
-
-//========== Softmax Performance ==========
-//Matrix size : 5120 x 5120
-//Memory size : 100.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 5120 x 5120
-//Avg Time per run : 10.92 ms
-//Effective Bandwidth : 19.21 GB / s
-//Throughput(approx) : 2.40 GFLOPS(based on element count)
-
-//========== Softmax Performance ==========
-//Matrix size : 6144 x 6144
-//Memory size : 144.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 6144 x 6144
-//Avg Time per run : 14.59 ms
-//Effective Bandwidth : 20.69 GB / s
-//Throughput(approx) : 2.59 GFLOPS(based on element count)
 
 // Warp内归约: max
 __device__ float warpReduceMax(float val)
@@ -181,8 +149,8 @@ bool check_result(float* gpu_res, float* cpu_res, int M, int N)
 
 int main()
 {
-	int M = 6144;
-	int N = 6144;
+	int M = 1024;
+	int N = 1024;
 	size_t byte = M * N * sizeof(float);
 	int num_elements = M * N;
 
