@@ -13,41 +13,20 @@ do {\
 } while (0)
 
 //========== Softmax Performance ==========
-//Matrix size : 4096 x 4096
-//Memory size : 64.00 MB
+//Matrix size : 1024 x 1024
+//Memory size : 4.00 MB
 //======================================== =
 //PASS : Result match!
 //Performance States :
-//Matrix Size : 4096 x 4096
-//Avg Time per run : 7.53 ms
-//Effective Bandwidth : 17.81 GB / s
-//Throughput(approx) : 2.23 GFLOPS(based on element count)
-
-//========== Softmax Performance ==========
-//Matrix size : 5120 x 5120
-//Memory size : 100.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 5120 x 5120
-//Avg Time per run : 10.92 ms
-//Effective Bandwidth : 19.21 GB / s
-//Throughput(approx) : 2.40 GFLOPS(based on element count)
-
-//========== Softmax Performance ==========
-//Matrix size : 6144 x 6144
-//Memory size : 144.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 6144 x 6144
-//Avg Time per run : 14.59 ms
-//Effective Bandwidth : 20.69 GB / s
-//Throughput(approx) : 2.59 GFLOPS(based on element count)
+//Matrix Size : 1024 x 1024
+//Avg Time per run : 1.83 ms
+//Effective Bandwidth : 4.57 GB / s
+//Throughput(approx) : 0.57 GFLOPS(based on element count)
 
 // Warp内归约: max
-__device__ float warpReduceMax(float val)
+__forceinline__ __device__ float warpReduceMax(float val)
 {
+	#pragma unroll
 	for (int offset = 16; offset > 0;offset >>= 1)
 	{
 		val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
@@ -56,8 +35,9 @@ __device__ float warpReduceMax(float val)
 }
 
 // Warp内归约: sum
-__device__ float warpReduceSum(float val)
+__forceinline__ __device__ float warpReduceSum(float val)
 {
+	#pragma unroll
 	for (int offset = 16;offset > 0;offset >>= 1)
 	{
 		val += __shfl_down_sync(0xffffffff, val, offset);
@@ -66,8 +46,9 @@ __device__ float warpReduceSum(float val)
 }
 
 // block内归约: max
-__device__ float blockReduceMaxShuffle(float val)
+__forceinline__ __device__ float blockReduceMaxShuffle(float val)
 {
+	#pragma unroll
 	__shared__ float  warp_max[32];
 
 	int lane = threadIdx.x % 32;
@@ -89,8 +70,9 @@ __device__ float blockReduceMaxShuffle(float val)
 }
 
 // block内归约: sum
-__device__ float blockReduceSumShuffle(float val)
+__forceinline__ __device__ float blockReduceSumShuffle(float val)
 {
+	#pragma unroll
 	__shared__ float warp_sum[32];
 
 	int lane = threadIdx.x % 32;
@@ -112,14 +94,14 @@ __device__ float blockReduceSumShuffle(float val)
 }
 
 
-__global__ void softmax_v2(float* input, float* output, int M, int N)
+__forceinline__ __global__ void softmax_v2(float* input, float* output, int M, int N)
 {
 	int row = blockIdx.x;
 	int tid = threadIdx.x;
 
 	float* x = input + row * N;
 	float* y = output + row * N;
-	
+
 	// 求最大值
 	float local_max = -INFINITY;
 	for (int i = tid;i < N;i += blockDim.x)
@@ -181,8 +163,8 @@ bool check_result(float* gpu_res, float* cpu_res, int M, int N)
 
 int main()
 {
-	int M = 6144;
-	int N = 6144;
+	int M = 1024;
+	int N = 1024;
 	size_t byte = M * N * sizeof(float);
 	int num_elements = M * N;
 
