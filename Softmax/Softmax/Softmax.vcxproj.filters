@@ -24,7 +24,7 @@
     <CudaCompile Include="softmax_v2.cu">
       <Filter>源文件</Filter>
     </CudaCompile>
-    <CudaCompile Include="softmax_v2_op.cu">
+    <CudaCompile Include="softmax_v3.cu">
       <Filter>源文件</Filter>
     </CudaCompile>
   </ItemGroup>

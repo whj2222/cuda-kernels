@@ -12,6 +12,16 @@ do {\
 	}\
 } while (0)
 
+//========== Softmax Performance ==========
+//Matrix size : 1024 x 1024
+//Memory size : 4.00 MB
+//======================================== =
+//PASS : Result match!
+//Performance States :
+//Matrix Size : 1024 x 1024
+//Avg Time per run : 0.12 ms
+//Effective Bandwidth : 69.23 GB / s
+//Throughput(approx) : 8.65 GFLOPS(based on element count)
 
 // Warp内归约: max
 __device__ float warpReduceMax(float val)

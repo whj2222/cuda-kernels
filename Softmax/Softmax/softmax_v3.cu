@@ -19,14 +19,13 @@ do {\
 //PASS : Result match!
 //Performance States :
 //Matrix Size : 1024 x 1024
-//Avg Time per run : 1.83 ms
-//Effective Bandwidth : 4.57 GB / s
-//Throughput(approx) : 0.57 GFLOPS(based on element count)
+//Avg Time per run : 0.08 ms
+//Effective Bandwidth : 102.91 GB / s
+//Throughput(approx) : 12.86 GFLOPS(based on element count)
 
 // Warp内归约: max
-__forceinline__ __device__ float warpReduceMax(float val)
+__device__ float warpReduceMax(float val)
 {
-	#pragma unroll
 	for (int offset = 16; offset > 0;offset >>= 1)
 	{
 		val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
@@ -35,9 +34,8 @@ __forceinline__ __device__ float warpReduceMax(float val)
 }
 
 // Warp内归约: sum
-__forceinline__ __device__ float warpReduceSum(float val)
+__device__ float warpReduceSum(float val)
 {
-	#pragma unroll
 	for (int offset = 16;offset > 0;offset >>= 1)
 	{
 		val += __shfl_down_sync(0xffffffff, val, offset);
@@ -46,9 +44,8 @@ __forceinline__ __device__ float warpReduceSum(float val)
 }
 
 // block内归约: max
-__forceinline__ __device__ float blockReduceMaxShuffle(float val)
+__device__ float blockReduceMaxShuffle(float val)
 {
-	#pragma unroll
 	__shared__ float  warp_max[32];
 
 	int lane = threadIdx.x % 32;
@@ -70,9 +67,8 @@ __forceinline__ __device__ float blockReduceMaxShuffle(float val)
 }
 
 // block内归约: sum
-__forceinline__ __device__ float blockReduceSumShuffle(float val)
+__device__ float blockReduceSumShuffle(float val)
 {
-	#pragma unroll
 	__shared__ float warp_sum[32];
 
 	int lane = threadIdx.x % 32;
@@ -94,17 +90,27 @@ __forceinline__ __device__ float blockReduceSumShuffle(float val)
 }
 
 
-__forceinline__ __global__ void softmax_v2(float* input, float* output, int M, int N)
+__global__ void softmax_v2(float* input, float* output, int M, int N)
 {
 	int row = blockIdx.x;
 	int tid = threadIdx.x;
-
+	
 	float* x = input + row * N;
 	float* y = output + row * N;
 
-	// 求最大值
+	// 向量化指针
+	float4* x4 = reinterpret_cast<float4*>(x);
+	float4* y4 = reinterpret_cast<float4*>(y);
+	int N4 = N / 4;
+
+	// 求最大值 
 	float local_max = -INFINITY;
-	for (int i = tid;i < N;i += blockDim.x)
+	for (int i = tid;i < N4;i += blockDim.x)
+	{
+		float4 data = x4[i];
+		local_max = fmaxf(local_max, fmaxf(fmaxf(data.w, data.x), fmaxf(data.y, data.z)));
+	}
+	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
 	{
 		local_max = fmaxf(local_max, x[i]);
 	}
@@ -112,14 +118,29 @@ __forceinline__ __global__ void softmax_v2(float* input, float* output, int M, i
 
 	// 求指数和
 	float local_sum = 0.0f;
-	for (int i = tid;i < N;i += blockDim.x)
+	for (int i = tid;i < N4;i += blockDim.x)
+	{
+		float4 data = x4[i];
+		local_sum += expf(data.x - max_val) + expf(data.y - max_val) + expf(data.z - max_val) + expf(data.w - max_val);
+	}
+	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
 	{
 		local_sum += expf(x[i] - max_val);
 	}
 	float sum_val = blockReduceSumShuffle(local_sum);
 
 	// 归一化
-	for (int i = tid;i < N;i += blockDim.x)
+	for (int i = tid;i < N4;i += blockDim.x)
+	{
+		float4 data = x4[i];
+		float4 result;
+		result.x = expf(data.x - max_val) / sum_val;
+		result.y = expf(data.y - max_val) / sum_val;
+		result.z = expf(data.z - max_val) / sum_val;
+		result.w = expf(data.w - max_val) / sum_val;
+		y4[i] = result;
+	}
+	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
 	{
 		y[i] = expf(x[i] - max_val) / sum_val;
 	}
