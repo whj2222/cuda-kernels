@@ -90,17 +90,20 @@ __device__ float blockReduceSumShuffle(float val)
 }
 
 
-__global__ void softmax_v3(float* input, float* output, int M, int N)
+__global__ void softmax_v4(float* input, float* output, int M, int N)
 {
+	extern __shared__ float smem[];
+
 	int row = blockIdx.x;
 	int tid = threadIdx.x;
-	
+
 	float* x = input + row * N;
 	float* y = output + row * N;
 
 	// 向量化指针
 	float4* x4 = reinterpret_cast<float4*>(x);
 	float4* y4 = reinterpret_cast<float4*>(y);
+	float4* smem4 = reinterpret_cast<float4*>(smem);
 	int N4 = N / 4;
 
 	// 求最大值 
@@ -118,31 +121,35 @@ __global__ void softmax_v3(float* input, float* output, int M, int N)
 
 	// 求指数和
 	float local_sum = 0.0f;
-	for (int i = tid;i < N4;i += blockDim.x)
-	{
+	for (int i = tid; i < N4; i += blockDim.x) {
 		float4 data = x4[i];
-		local_sum += expf(data.x - max_val) + expf(data.y - max_val) + expf(data.z - max_val) + expf(data.w - max_val);
+		float4 e;
+		e.x = expf(data.x - max_val);
+		e.y = expf(data.y - max_val);
+		e.z = expf(data.z - max_val);
+		e.w = expf(data.w - max_val);
+		smem4[i] = e;                                   // 一次存 4 个
+		local_sum += e.x + e.y + e.z + e.w;
 	}
-	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
-	{
-		local_sum += expf(x[i] - max_val);
+	for (int i = N4 * 4 + tid; i < N; i += blockDim.x) {
+		float e = expf(x[i] - max_val);
+		smem[i] = e;
+		local_sum += e;
 	}
 	float sum_val = blockReduceSumShuffle(local_sum);
-
 	// 归一化
-	for (int i = tid;i < N4;i += blockDim.x)
-	{
-		float4 data = x4[i];
+	float inv_sum = 1.0f / sum_val;                     // 乘法比除法快
+	for (int i = tid; i < N4; i += blockDim.x) {
+		float4 e = smem4[i];                            // 一次读 4 个
 		float4 result;
-		result.x = expf(data.x - max_val) / sum_val;
-		result.y = expf(data.y - max_val) / sum_val;
-		result.z = expf(data.z - max_val) / sum_val;
-		result.w = expf(data.w - max_val) / sum_val;
-		y4[i] = result;
+		result.x = e.x * inv_sum;
+		result.y = e.y * inv_sum;
+		result.z = e.z * inv_sum;
+		result.w = e.w * inv_sum;
+		y4[i] = result;                                 // 一次写 4 个
 	}
-	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
-	{
-		y[i] = expf(x[i] - max_val) / sum_val;
+	for (int i = N4 * 4 + tid; i < N; i += blockDim.x) {
+		y[i] = smem[i] * inv_sum;
 	}
 }
 
@@ -216,13 +223,13 @@ int main()
 	CUDA_CHECK(cudaEventCreate(&stop));
 
 	dim3 threadPerBlock(256);
-	int smem_size = threadPerBlock.x * sizeof(float);
+	int smem_size = N * sizeof(float);
 	float milliseconds = 0;
 
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		softmax_v3 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		softmax_v4 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -231,7 +238,7 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		softmax_v3 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		softmax_v4 << <M, threadPerBlock, smem_size >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());

@@ -12,137 +12,31 @@ do {\
 	}\
 } while (0)
 
-//========== Softmax Performance ==========
-//Matrix size : 1024 x 1024
-//Memory size : 4.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 1024 x 1024
-//Avg Time per run : 0.08 ms
-//Effective Bandwidth : 102.91 GB / s
-//Throughput(approx) : 12.86 GFLOPS(based on element count)
 
-// Warp内归约: max
-__device__ float warpReduceMax(float val)
+__global__ void online_softmax_v0(float* input, float* output, int M, int N)
 {
-	for (int offset = 16; offset > 0;offset >>= 1)
-	{
-		val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
-	}
-	return val;
-}
+	int row = blockIdx.x * blockDim.x + threadIdx.x;
+	if (row >= M) return;
 
-// Warp内归约: sum
-__device__ float warpReduceSum(float val)
-{
-	for (int offset = 16;offset > 0;offset >>= 1)
-	{
-		val += __shfl_down_sync(0xffffffff, val, offset);
-	}
-	return val;
-}
-
-// block内归约: max
-__device__ float blockReduceMaxShuffle(float val)
-{
-	__shared__ float  warp_max[32];
-
-	int lane = threadIdx.x % 32;
-	int wid = threadIdx.x / 32;
-
-	val = warpReduceMax(val);
-
-	if (lane == 0) warp_max[wid] = val;
-	__syncthreads();
-
-	int num_warps = blockDim.x / 32;
-	val = (lane < num_warps) ? warp_max[lane] : -INFINITY;
-	if (wid == 0) val = warpReduceMax(val);
-
-	__shared__ float block_result;
-	if (threadIdx.x == 0) block_result = val;
-	__syncthreads();
-	return block_result;
-}
-
-// block内归约: sum
-__device__ float blockReduceSumShuffle(float val)
-{
-	__shared__ float warp_sum[32];
-
-	int lane = threadIdx.x % 32;
-	int wid = threadIdx.x / 32;
-
-	val = warpReduceSum(val);
-
-	if (lane == 0) warp_sum[wid] = val;
-	__syncthreads();
-
-	int num_warps = blockDim.x / 32;
-	val = (lane < num_warps) ? warp_sum[lane] : 0.0f;
-	if (wid == 0) val = warpReduceSum(val);
-
-	__shared__ float block_result;
-	if (threadIdx.x == 0) block_result = val;
-	__syncthreads();
-	return block_result;
-}
-
-
-__global__ void softmax_v3(float* input, float* output, int M, int N)
-{
-	int row = blockIdx.x;
-	int tid = threadIdx.x;
-	
 	float* x = input + row * N;
 	float* y = output + row * N;
 
-	// 向量化指针
-	float4* x4 = reinterpret_cast<float4*>(x);
-	float4* y4 = reinterpret_cast<float4*>(y);
-	int N4 = N / 4;
+	// online softmax同时计算max和sum
+	float m = -INFINITY;
+	float d = 0.0f;
 
-	// 求最大值 
-	float local_max = -INFINITY;
-	for (int i = tid;i < N4;i += blockDim.x)
+	for (int i = 0;i < N;i++)
 	{
-		float4 data = x4[i];
-		local_max = fmaxf(local_max, fmaxf(fmaxf(data.w, data.x), fmaxf(data.y, data.z)));
+		float xi = x[i];
+		float m_new = fmax(m, xi);
+		d = d * expf(m - m_new) + expf(xi - m_new);
+		m = m_new;
 	}
-	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
-	{
-		local_max = fmaxf(local_max, x[i]);
-	}
-	float max_val = blockReduceMaxShuffle(local_max);
-
-	// 求指数和
-	float local_sum = 0.0f;
-	for (int i = tid;i < N4;i += blockDim.x)
-	{
-		float4 data = x4[i];
-		local_sum += expf(data.x - max_val) + expf(data.y - max_val) + expf(data.z - max_val) + expf(data.w - max_val);
-	}
-	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
-	{
-		local_sum += expf(x[i] - max_val);
-	}
-	float sum_val = blockReduceSumShuffle(local_sum);
 
 	// 归一化
-	for (int i = tid;i < N4;i += blockDim.x)
+	for (int i = 0;i < N;i++)
 	{
-		float4 data = x4[i];
-		float4 result;
-		result.x = expf(data.x - max_val) / sum_val;
-		result.y = expf(data.y - max_val) / sum_val;
-		result.z = expf(data.z - max_val) / sum_val;
-		result.w = expf(data.w - max_val) / sum_val;
-		y4[i] = result;
-	}
-	for (int i = N4 * 4 + tid;i < N;i += blockDim.x)
-	{
-		y[i] = expf(x[i] - max_val) / sum_val;
+		y[i] = expf(x[i] - m) / d;
 	}
 }
 
@@ -216,13 +110,13 @@ int main()
 	CUDA_CHECK(cudaEventCreate(&stop));
 
 	dim3 threadPerBlock(256);
-	int smem_size = threadPerBlock.x * sizeof(float);
+	int smem_size = N * sizeof(float);
 	float milliseconds = 0;
 
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		softmax_v3 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v0 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -231,7 +125,7 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		softmax_v3 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v0 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
