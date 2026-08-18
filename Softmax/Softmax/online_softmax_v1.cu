@@ -12,41 +12,78 @@ do {\
 	}\
 } while (0)
 
-//========== Softmax Performance ==========
-//Matrix size : 1024 x 1024
-//Memory size : 4.00 MB
-//======================================== =
-//PASS : Result match!
-//Performance States :
-//Matrix Size : 1024 x 1024
-//Avg Time per run : 2.57 ms
-//Effective Bandwidth : 3.26 GB / s
-//Throughput(approx) : 0.41 GFLOPS(based on element count)
 
-__global__ void online_softmax_v0(float* input, float* output, int M, int N)
+
+__device__ void warpReduceOnline(float& m, float& d)
 {
-	int row = blockIdx.x * blockDim.x + threadIdx.x;
-	if (row >= M) return;
+	for (int offset = 16;offset > 0;offset >>= 1)
+	{
+		float m2 = __shfl_down_sync(0xffffffff, m, offset);
+		float d2 = __shfl_down_sync(0xffffffff, d, offset);
+
+		float m_new = fmaxf(m, m2);
+		d = d * expf(m - m_new) + d2 * expf(m2 - m_new);
+		m = m_new;
+	}
+}
+
+__global__ void online_softmax_v1(float* input, float* output, int M, int N)
+{
+	int row = blockIdx.x;
+	int tid = threadIdx.x;
+	int lane = tid % 32;
+	int wid = tid / 32;
 
 	float* x = input + row * N;
 	float* y = output + row * N;
 
-	// online softmax同时计算max和sum
-	float m = -INFINITY;
-	float d = 0.0f;
+	// 每个线程处理一段
+	float local_m = -INFINITY;
+	float local_d = 0.0f;
 
-	for (int i = 0;i < N;i++)
+	for (int i = tid;i < N;i += blockDim.x)
 	{
 		float xi = x[i];
-		float m_new = fmax(m, xi);
-		d = d * expf(m - m_new) + expf(xi - m_new);
-		m = m_new;
+		float m_new = fmaxf(local_m, xi);
+		local_d = local_d * expf(local_m - m_new) + expf(x[i] - m_new);
+		local_m = m_new;
 	}
 
-	// 归一化
-	for (int i = 0;i < N;i++)
+	// warp合并
+	warpReduceOnline(local_m, local_d);
+
+	__shared__ float warp_m[32];
+	__shared__ float warp_d[32];
+
+	if (lane == 0)
 	{
-		y[i] = expf(x[i] - m) / d;
+		warp_m[wid] = local_m;
+		warp_d[wid] = local_d;
+	}
+	__syncthreads();
+
+	// 最后一个warp归约
+	int num_warp = blockDim.x / 32;
+	if (wid == 0)
+	{
+		local_m = (lane < num_warp) ? warp_m[lane] : -INFINITY;
+		local_d = (lane < num_warp) ? warp_d[lane] : 0.0f;
+		warpReduceOnline(local_m, local_d);
+ 	}
+	// 广播最终结果
+
+	__shared__ float final_m;
+	__shared__ float final_d;
+	if (tid == 0)
+	{
+		final_m = local_m;
+		final_d = local_d;
+	}
+	__syncthreads();
+	// 归一化
+	for (int i = tid;i < N;i += blockDim.x)
+	{
+		y[i] = expf(x[i] - final_m) / final_d;
 	}
 }
 
@@ -126,7 +163,7 @@ int main()
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		online_softmax_v0 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v1 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -135,7 +172,7 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		online_softmax_v0 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v1 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
