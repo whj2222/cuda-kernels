@@ -149,7 +149,10 @@
     <CudaCompile Include="online_softmax_v0.cu">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </CudaCompile>
-    <CudaCompile Include="online_softmax_v1.cu" />
+    <CudaCompile Include="online_softmax_v1.cu">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </CudaCompile>
+    <CudaCompile Include="online_softmax_v2.cu" />
     <CudaCompile Include="softmax_0.cu">
       <FileType>Document</FileType>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>

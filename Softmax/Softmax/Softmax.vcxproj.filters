@@ -36,5 +36,8 @@
     <CudaCompile Include="online_softmax_v1.cu">
       <Filter>源文件</Filter>
     </CudaCompile>
+    <CudaCompile Include="online_softmax_v2.cu">
+      <Filter>源文件</Filter>
+    </CudaCompile>
   </ItemGroup>
 </Project>
