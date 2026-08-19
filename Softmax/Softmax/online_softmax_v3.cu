@@ -20,8 +20,8 @@ do {\
 //Performance States :
 //Matrix Size : 1024 x 1024
 //Avg Time per run : 0.11 ms
-//Effective Bandwidth : 75.76 GB / s
-//Throughput(approx) : 9.47 GFLOPS(based on element count)
+//Effective Bandwidth : 79.77 GB / s
+//Throughput(approx) : 9.97 GFLOPS(based on element count)
 
 __device__ void warpReduceOnline(float& m, float& d)
 {
@@ -36,7 +36,9 @@ __device__ void warpReduceOnline(float& m, float& d)
 	}
 }
 
-__global__ void online_softmax_v2(float* input, float* output, int M, int N)
+#define MAX_ELEMS_PER_THREAD 128
+
+__global__ void online_softmax_v3(float* input, float* output, int M, int N)
 {
 	int row = blockIdx.x;
 	int tid = threadIdx.x;
@@ -50,13 +52,18 @@ __global__ void online_softmax_v2(float* input, float* output, int M, int N)
 	float4* y4 = reinterpret_cast<float4*>(y);
 	int N4 = N / 4;
 
+	float4 reg_cache[MAX_ELEMS_PER_THREAD];
+
 	// 每个线程处理一段
 	float local_m = -INFINITY;
 	float local_d = 0.0f;
 
+	int count = 0;
 	for (int i = tid;i < N4;i += blockDim.x)
 	{
 		float4 data = x4[i];
+		reg_cache[count] = data;
+		count++;
 		float vals[4] = { data.x, data.y, data.z, data.w };
 		for (int k = 0;k < 4;k++)
 		{
@@ -104,9 +111,10 @@ __global__ void online_softmax_v2(float* input, float* output, int M, int N)
 	}
 	__syncthreads();
 	// 归一化
+	int idx = 0;
 	for (int i = tid;i < N4;i += blockDim.x)
 	{
-		float4 data = x4[i];
+		float4 data = reg_cache[idx];
 		float4 out;
 		out.x = exp(data.x - final_m) / final_d;
 		out.y = exp(data.y - final_m) / final_d;
@@ -195,7 +203,7 @@ int main()
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		online_softmax_v2 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v3 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -204,7 +212,7 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		online_softmax_v2 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v3 << <M, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
