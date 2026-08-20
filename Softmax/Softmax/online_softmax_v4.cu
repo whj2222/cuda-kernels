@@ -25,6 +25,17 @@ __device__ void warpReduceOnline(float& m, float& d)
 	}
 }
 
+//========== Softmax Performance ==========
+//Matrix size : 4096 x 4096
+//Memory size : 64.00 MB
+//======================================== =
+//PASS : Result match!
+//Performance States :
+//Matrix Size : 4096 x 4096
+//Avg Time per run : 1.06 ms
+//Effective Bandwidth : 126.97 GB / s
+//Throughput(approx) : 15.87 GFLOPS(based on element count)
+
 #define MAX_ELEMS_PER_THREAD 32
 
 __global__ void online_softmax_v4(float* input, float* output, int M, int N)
@@ -189,6 +200,9 @@ int main()
 	CUDA_CHECK(cudaEventCreate(&start));
 	CUDA_CHECK(cudaEventCreate(&stop));
 
+	int num_sms;
+	cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, 0);
+	int grid_size = min(M, num_sms * 4);
 	dim3 threadPerBlock(256);
 	int smem_size = N * sizeof(float);
 	float milliseconds = 0;
@@ -196,7 +210,7 @@ int main()
 	// warm up
 	for (int i = 0;i < 20;i++)
 	{
-		online_softmax_v4 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v4 << <grid_size, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -205,7 +219,7 @@ int main()
 	CUDA_CHECK(cudaEventRecord(start));
 	for (int i = 0;i < repeat;i++)
 	{
-		online_softmax_v4 << <M, threadPerBlock >> > (d_input, d_output, M, N);
+		online_softmax_v4 << <grid_size, threadPerBlock >> > (d_input, d_output, M, N);
 	}
 	CUDA_CHECK(cudaEventRecord(stop));
 	CUDA_CHECK(cudaGetLastError());
